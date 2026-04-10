@@ -11,6 +11,10 @@ A leverless (all-button) fighting game controller that polls GPIO buttons and se
 - GPIO button polling with software debouncing
 - Why a super loop works here: every task completes instantly (just register reads/writes)
 
+## Wiring
+
+<img width="1158" height="2484" alt="Untitled Sketch_bb" src="https://github.com/user-attachments/assets/629ec549-783b-4c77-8f45-4bd6e2abf316" />
+
 ## Button Pin Mapping
 
 GP2040-CE compatible pinout:
