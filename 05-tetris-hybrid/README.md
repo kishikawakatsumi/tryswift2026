@@ -12,6 +12,10 @@ Game logic and rendering run as cooperative scheduler tasks, while music and but
 - The vector table connecting interrupt handlers to hardware
 - Compare with [04-tetris-cooperative](../04-tetris-cooperative) to hear the difference
 
+## Wiring
+
+<img width="989" height="1809" alt="Untitled Sketch 2_bb" src="https://github.com/user-attachments/assets/6252cccd-801f-4102-91b8-ca5b5c5596fb" />
+
 ## Hardware
 
 ### OLED Display (SSD1306, 128x64, I2C)
