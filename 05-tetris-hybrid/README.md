@@ -4,6 +4,8 @@ Tetris with a hybrid scheduler combining cooperative tasks and hardware interrup
 
 Game logic and rendering run as cooperative scheduler tasks, while music and button input are handled by hardware interrupts. This ensures smooth music playback and instant button response even during heavy I2C display transfers.
 
+https://github.com/user-attachments/assets/35c4f8a0-9a07-4c5f-91a0-c68a01dbf837
+
 ## What it demonstrates
 
 - Hybrid scheduling: cooperative tasks + hardware interrupts
