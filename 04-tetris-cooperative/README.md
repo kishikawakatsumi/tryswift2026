@@ -11,6 +11,10 @@ Game logic, rendering, and music run as separate tasks registered with different
 - The limitation of cooperative scheduling: a slow task delays all others
 - Compare with [05-tetris-hybrid](../05-tetris-hybrid) to hear the difference in music playback
 
+## Wiring
+
+<img width="989" height="1809" alt="Untitled Sketch 2_bb" src="https://github.com/user-attachments/assets/6252cccd-801f-4102-91b8-ca5b5c5596fb" />
+
 ## Hardware
 
 ### OLED Display (SSD1306, 128x64, I2C)
