@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tetris Hybrid — ベアメタル Embedded Swift 徹底解説</title>
+<style>
+  :root { --bg: #0d1117; --fg: #c9d1d9; --accent: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922; --border: #30363d; --code-bg: #161b22; --card-bg: #161b22; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.7; max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
+  h1 { font-size: 2rem; color: #fff; border-bottom: 2px solid var(--accent); padding-bottom: .5rem; margin-bottom: 1.5rem; }
+  h2 { font-size: 1.5rem; color: var(--accent); margin: 2.5rem 0 1rem; border-bottom: 1px solid var(--border); padding-bottom: .3rem; }
+  h3 { font-size: 1.15rem; color: var(--green); margin: 1.5rem 0 .5rem; }
+  h4 { font-size: 1rem; color: var(--yellow); margin: 1rem 0 .3rem; }
+  p, li { margin-bottom: .5rem; }
+  ul, ol { padding-left: 1.5rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; background: var(--code-bg); padding: .15em .4em; border-radius: 4px; font-size: .9em; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; margin: 1rem 0; line-height: 1.5; }
+  pre code { background: none; padding: 0; font-size: .85em; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid var(--border); padding: .5rem .75rem; text-align: left; }
+  th { background: var(--code-bg); color: var(--accent); }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; margin: 1rem 0; }
+  .card h3 { margin-top: 0; }
+  .diagram { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; font-family: monospace; white-space: pre; overflow-x: auto; margin: 1rem 0; font-size: .85em; line-height: 1.6; }
+  .tag { display: inline-block; padding: .1em .5em; border-radius: 4px; font-size: .8em; font-weight: 600; }
+  .tag-hw { background: #1f3d2b; color: var(--green); }
+  .tag-sw { background: #1c2d4f; color: var(--accent); }
+  .tag-irq { background: #3d1f1f; color: var(--red); }
+  .toc { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem 1.5rem; margin: 1.5rem 0; }
+  .toc a { display: block; padding: .2rem 0; }
+  .toc .sub { padding-left: 1.2rem; font-size: .9em; }
+  .note { background: #1c2d4f; border-left: 4px solid var(--accent); padding: .8rem 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0; }
+  .warn { background: #3d2f1f; border-left: 4px solid var(--yellow); padding: .8rem 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0; }
+  .err { background: #3d1f1f; border-left: 4px solid var(--red); padding: .8rem 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Tetris Hybrid — ベアメタル Embedded Swift 徹底解説</h1>
+<p>Raspberry Pi Pico (RP2040) 上で <strong>C言語ゼロ・100% Swift</strong> で実装されたテトリスゲーム。<br>
+SysTick 割り込みによるBGM再生、GPIO 割り込みによるボタンキャプチャ、協調ループによるゲームロジック・描画という<strong>ハイブリッドアーキテクチャ</strong>を採用。</p>
+
+<nav class="toc">
+<strong>目次</strong>
+<a href="#arch">1. アーキテクチャ概要</a>
+<a href="#boot" class="sub">1.1 起動シーケンス</a>
+<a href="#hybrid" class="sub">1.2 ハイブリッド設計</a>
+<a href="#files">2. ファイル構成</a>
+<a href="#hw">3. ハードウェア層</a>
+<a href="#mmio" class="sub">3.1 MMIO レジスタアクセス</a>
+<a href="#clk" class="sub">3.2 クロック・PLL・XOSC</a>
+<a href="#systick" class="sub">3.3 SysTick タイマー</a>
+<a href="#gpio" class="sub">3.4 GPIO / IOBank / PadsBank</a>
+<a href="#i2c" class="sub">3.5 I2C コントローラ</a>
+<a href="#ssd1306" class="sub">3.6 SSD1306 OLEDディスプレイ</a>
+<a href="#pwm" class="sub">3.7 PWM（ブザー）</a>
+<a href="#uart" class="sub">3.8 UART デバッグ出力</a>
+<a href="#nvic" class="sub">3.9 NVIC 割り込みコントローラ</a>
+<a href="#board">4. ボード抽象化層</a>
+<a href="#game">5. ゲームロジック</a>
+<a href="#tetris" class="sub">5.1 Tetris — 盤面管理</a>
+<a href="#pieces" class="sub">5.2 Piece — テトロミノ定義</a>
+<a href="#music" class="sub">5.3 Music — BGM再生</a>
+<a href="#button" class="sub">5.4 ButtonISR — 割り込みボタン入力</a>
+<a href="#main">6. メインループと状態遷移</a>
+<a href="#input" class="sub">6.1 入力処理</a>
+<a href="#screens" class="sub">6.2 画面遷移</a>
+<a href="#support">7. サポート層</a>
+<a href="#vector" class="sub">7.1 ベクターテーブル</a>
+<a href="#startup" class="sub">7.2 メモリ初期化</a>
+<a href="#runtime" class="sub">7.3 ランタイムスタブ</a>
+<a href="#boot2s" class="sub">7.4 Boot2 ブートローダ</a>
+<a href="#build">8. ビルドシステム</a>
+<a href="#linker" class="sub">8.1 リンカスクリプト</a>
+<a href="#problems">9. 開発中に遭遇した問題と解決策</a>
+</nav>
+
+<!-- ======================================== -->
+<h2 id="arch">1. アーキテクチャ概要</h2>
+
+<h3 id="boot">1.1 起動シーケンス</h3>
+
+<div class="diagram">
+電源ON
+  │
+  ▼
+Boot ROM (RP2040内蔵)
+  │ XIPフラッシュの先頭256バイトを読む
+  ▼
+Boot2 (Boot2.swift → .boot2セクション)
+  │ XIPフラッシュコントローラを初期化
+  ▼
+ベクターテーブル (.vectorセクション)
+  │ エントリ0: スタックポインタ = 0x2004_0000
+  │ エントリ1: Reset_Handler
+  ▼
+Reset_Handler (VectorTable.swift)
+  │ initializeMemorySections() → .data をROMからRAMにコピー、.bss をゼロクリア
+  │ Application.main()
+  ▼
+Board.init()
+  │ Clocks: XOSC → PLL → 125MHz
+  │ SysTick: 1ms割り込み開始
+  │ ペリフェラルリセット + 初期化
+  ▼
+メインループ開始
+</div>
+
+<h3 id="hybrid">1.2 ハイブリッド設計</h3>
+
+<p>このプロジェクトの核心は、<strong>時間的に重要な処理を割り込みで、それ以外を協調ループで</strong>処理するハイブリッドアーキテクチャです。</p>
+
+<div class="diagram">
+┌─────────────────────────────────────────────┐
+│               SysTick 割り込み (1ms)           │
+│  ┌─────────────┐  ┌──────────────────────┐  │
+│  │ _tick += 1   │  │ Music.advanceIn...() │  │
+│  │ (時刻カウンタ) │  │ (BGMノート切り替え)    │  │
+│  └─────────────┘  └──────────────────────┘  │
+├─────────────────────────────────────────────┤
+│               GPIO 割り込み (IRQ13)            │
+│  ┌──────────────────────────────────────┐   │
+│  │ ButtonISR.handle()                    │   │
+│  │ (ボタン押下をビットマスクに記録)         │   │
+│  └──────────────────────────────────────┘   │
+├─────────────────────────────────────────────┤
+│               協調ループ (メインスレッド)        │
+│  ┌──────────┐ ┌──────────┐ ┌───────────┐  │
+│  │ゲームロジック│ │  描画処理  │ │ I2Cフラッシュ│  │
+│  │ (高速)    │ │ (高速)    │ │ (~25ms)   │  │
+│  └──────────┘ └──────────┘ └───────────┘  │
+└─────────────────────────────────────────────┘
+</div>
+
+<p><strong>なぜハイブリッドが必要か：</strong></p>
+<p>SSD1306 OLEDへのI2Cフラッシュに約<strong>25ms</strong>かかります。この間メインスレッドはブロックされますが、割り込みは発火し続けます。BGM（1ms精度でノート切り替え）とボタン入力（押した瞬間を逃さない）を割り込みに置くことで、I2Cブロック中も正確に処理されます。</p>
+
+<table>
+<tr><th>処理</th><th>実行コンテキスト</th><th>タイミング要求</th><th>理由</th></tr>
+<tr><td>BGMノート切り替え</td><td><span class="tag tag-irq">SysTick割り込み</span></td><td>1ms精度</td><td>PWMレジスタ書き込みのみ（数μs）</td></tr>
+<tr><td>ボタンキャプチャ</td><td><span class="tag tag-irq">GPIO割り込み</span></td><td>即時</td><td>I2C中の押下を逃さない</td></tr>
+<tr><td>ゲームロジック</td><td><span class="tag tag-sw">協調ループ</span></td><td>~16ms</td><td>処理量が多い</td></tr>
+<tr><td>画面描画</td><td><span class="tag tag-sw">協調ループ</span></td><td>~30ms</td><td>I2Cフラッシュで25msブロック</td></tr>
+</table>
+
+<!-- ======================================== -->
+<h2 id="files">2. ファイル構成</h2>
+
+<pre><code>games/tetris-hybrid/
+├── Package.swift              # Swift Package Manager 設定
+├── Makefile                   # ビルドコマンド
+├── linker/memmap.ld           # リンカスクリプト
+└── Sources/Application/
+    ├── Main.swift             # エントリポイント + ゲームループ + 全画面描画
+    ├── Hardware/
+    │   ├── MMIO.swift         # Register型（VolatileMappedRegister ラッパー）
+    │   ├── Clocks.swift       # システムクロック初期化
+    │   ├── PLL.swift          # PLL設定（125MHz生成）
+    │   ├── XOSC.swift         # 12MHz水晶発振器
+    │   ├── Resets.swift       # ペリフェラルリセット制御
+    │   ├── SysTick.swift      # 1ms割り込みタイマー
+    │   ├── GPIO.swift         # SIO / IOBank / PadsBank
+    │   ├── I2C.swift          # I2Cマスターコントローラ
+    │   ├── SSD1306.swift      # OLEDディスプレイドライバ
+    │   ├── PWM.swift          # パルス幅変調（ブザー）
+    │   ├── UART.swift         # シリアルデバッグ出力
+    │   └── NVIC.swift         # 割り込みコントローラ
+    ├── Board/
+    │   └── Board.swift        # ボード初期化 + Display + Buttons + Font
+    ├── Game/
+    │   ├── Tetris.swift       # ゲームロジック（盤面・衝突・スコア）
+    │   ├── Pieces.swift       # 7種テトロミノ × 4回転
+    │   ├── Music.swift        # BGM（コロブチカ）PWM再生
+    │   └── ButtonISR.swift    # GPIO割り込みボタン入力
+    └── Support/
+        ├── VectorTable.swift  # ARM Cortex-M0+ ベクターテーブル
+        ├── Startup.swift      # .data/.bss メモリ初期化
+        ├── Boot2.swift        # RP2040 第2段ブートローダ
+        └── RuntimeStubs.swift # ランタイムスタブ（ヒープ・除算・シフト等）</code></pre>
+
+<!-- ======================================== -->
+<h2 id="hw">3. ハードウェア層</h2>
+
+<h3 id="mmio">3.1 MMIO レジスタアクセス</h3>
+
+<p>全てのハードウェアアクセスの基盤となる <code>Register</code> 型です。Swift の <code>VolatileMappedRegister</code> をラップし、コンパイラによる最適化（読み書きの省略・並べ替え）を防ぎます。</p>
+
+<pre><code>struct Register {
+  let address: UInt32
+
+  func load() -> UInt32 {
+    VolatileMappedRegister&lt;UInt32&gt;(unsafeBitPattern: UInt(address)).load()
+  }
+  func store(_ value: UInt32) {
+    VolatileMappedRegister&lt;UInt32&gt;(unsafeBitPattern: UInt(address)).store(value)
+  }
+
+  // RP2040 アトミックビット操作エイリアス
+  func set(_ bits: UInt32)   { /* base + 0x2000 */ }  // ビットをセット
+  func clear(_ bits: UInt32) { /* base + 0x3000 */ }  // ビットをクリア
+  func xor(_ bits: UInt32)   { /* base + 0x1000 */ }  // ビットをトグル
+}</code></pre>
+
+<div class="note">
+<strong>RP2040のアトミックエイリアス：</strong>通常のRead-Modify-Writeでは割り込みとの競合が起きますが、RP2040はアドレスに+0x2000/+0x3000/+0x1000を加えるだけでアトミックなビット操作が可能です。割り込み無効化が不要です。
+</div>
+
+<h3 id="clk">3.2 クロック・PLL・XOSC</h3>
+
+<p>RP2040を12MHz水晶から125MHzに引き上げるクロックツリーです。</p>
+
+<div class="diagram">
+XOSC (12MHz水晶)
+  │
+  ▼
+PLL_SYS (×125, ÷6, ÷2 = 125MHz)
+  │
+  ├──→ clk_sys  = 125MHz  (CPU, バス)
+  ├──→ clk_ref  = 12MHz   (ウォッチドッグ等)
+  └──→ clk_peri = 125MHz  (UART, I2C)
+</div>
+
+<h3 id="systick">3.3 SysTick タイマー</h3>
+
+<p>ARM Cortex-M0+ 内蔵の24ビットダウンカウンタ。1msごとに割り込みを発生させます。</p>
+
+<pre><code>enum SysTick {
+  nonisolated(unsafe) static var _tick: UInt32 = 0
+
+  // 揮発性読み取り（ポインタ経由でコンパイラキャッシュを防止）
+  static var milliseconds: UInt32 {
+    withUnsafePointer(to: &amp;_tick) { ptr in
+      UnsafeRawPointer(ptr).loadUnaligned(as: UInt32.self)
+    }
+  }
+
+  static func initialize() {
+    rvr.store(125_000 - 1)  // 125MHz ÷ 125,000 = 1kHz (1ms)
+    csr.store(0x7)           // ENABLE + TICKINT + CLKSOURCE
+  }
+}</code></pre>
+
+<div class="err">
+<strong>遭遇した問題：揮発性変数のキャッシュ</strong><br>
+<code>_tick</code> を直接読むと、コンパイラが値をレジスタにキャッシュし、割り込みによる更新が見えなくなります。<code>withUnsafePointer</code> + <code>loadUnaligned</code> で毎回メモリから読むことを強制しています。Swiftには C の <code>volatile</code> に相当する機能がないため、この回避策が必要です。
+</div>
+
+<h3 id="gpio">3.4 GPIO / IOBank / PadsBank</h3>
+
+<table>
+<tr><th>モジュール</th><th>役割</th><th>ベースアドレス</th></tr>
+<tr><td><code>SIO</code></td><td>GPIO出力制御・入力読み取り</td><td><code>0xD000_0000</code></td></tr>
+<tr><td><code>IOBank</code></td><td>ピン機能マルチプレクサ + 割り込み制御</td><td><code>0x4001_4000</code></td></tr>
+<tr><td><code>PadsBank</code></td><td>パッド電気特性（プルアップ、スルーレート等）</td><td><code>0x4001_C000</code></td></tr>
+</table>
+
+<h4>PadsBank.store の 0x4A</h4>
+<pre><code>// 0x4A = 0b 0_1_00_1_0_1_0
+//         OD=0 IE=1 DRIVE=00(4mA) PUE=1 PDE=0 SCHMITT=1 SLEWFAST=0
+PadsBank.store(pin, 0x4A)  // I2Cピン・ボタンピン共通</code></pre>
+
+<h4>GPIO割り込み（ボタン入力用）</h4>
+<pre><code>// IOBank: 落下エッジ割り込みの有効化
+IOBank.enableInterrupt(pin, .fallingEdge)
+
+// IOBank: 割り込みペンディング確認とアクノリッジ
+IOBank.isInterruptPending(pin, .fallingEdge)
+IOBank.acknowledgeInterrupt(pin, .fallingEdge)</code></pre>
+
+<h3 id="i2c">3.5 I2C コントローラ</h3>
+
+<p>DesignWare I2C IPブロック。400kHzマスターモードでSSD1306 OLEDと通信します。</p>
+
+<div class="warn">
+<strong>IC_TAR の書き込み制約：</strong>ターゲットアドレスレジスタ (IC_TAR) はコントローラが無効 (IC_ENABLE=0) の間しか書き込めません。有効なまま書くと間欠的にI2C通信が失敗します。
+</div>
+
+<pre><code>private static func setTarget(_ address: UInt8) {
+  if address == currentTarget { return }  // キャッシュで冗長サイクルを回避
+
+  enable.store(0)                          // 無効化
+  while enableStatus.load() &amp; 1 != 0 {}   // 無効化完了を待つ
+
+  targetAddress.store(UInt32(address))     // IC_TAR 書き込み
+  currentTarget = address
+
+  enable.store(1)                          // 再有効化
+}</code></pre>
+
+<h3 id="ssd1306">3.6 SSD1306 OLED ディスプレイ</h3>
+
+<p>128×64ピクセルの単色OLED。物理的には横長ですが、<strong>ポートレートモード</strong>（64×128）で使用しています。</p>
+
+<pre><code>// 座標変換: 論理(x,y) → 物理(y, 63-x)
+if SSD1306.portrait {
+  px = y
+  py = 63 - x
+}</code></pre>
+
+<p>フレームバッファ（1024バイト）をRAMに保持し、<code>flush()</code> でI2C経由で全画面転送します。この転送に約<strong>25ms</strong>かかることが、ハイブリッドアーキテクチャが必要な根本的理由です。</p>
+
+<h3 id="pwm">3.7 PWM（ブザー）</h3>
+
+<p>GP20に接続されたブザーでBGMを再生します。PWMスライス2、チャンネルA。</p>
+
+<pre><code>// クロック分周: 125MHz ÷ 16 = 7.8125MHz
+// 周波数制御: freq = 7,812,500 ÷ top
+// 例: 659Hz (E5) → top = 7,812,500 ÷ 659 = 11,855
+PWM.setTop(slice: 2, top: 11855)
+PWM.setDuty(pin: 20, duty: 11855 / 2)  // 50%デューティ = 最大音量</code></pre>
+
+<h3 id="uart">3.8 UART デバッグ出力</h3>
+<p>GP0(TX)/GP1(RX)で115200bps。Debug Probeのシリアルポート経由でPCに出力。</p>
+
+<h3 id="nvic">3.9 NVIC 割り込みコントローラ</h3>
+<p>ARM Cortex-M0+ の Nested Vectored Interrupt Controller。IO_BANK0 (IRQ13) を有効化してGPIOボタン割り込みを受け取ります。</p>
+
+<!-- ======================================== -->
+<h2 id="board">4. ボード抽象化層</h2>
+
+<p><code>Board.swift</code> がハードウェア初期化を一元管理します。</p>
+
+<pre><code>struct Board {
+  var display = Display()
+
+  init() {
+    Clocks.initialize()            // 125MHz クロック設定
+    SysTick.initialize()           // 1ms 割り込みタイマー
+
+    // ペリフェラルリセット（デバッグ再デプロイの安定性）
+    Resets.reset(.i2c0)
+    Resets.reset(.uart0)
+    Resets.reset(.pwm)
+    Resets.unreset(.ioBank0)
+    Resets.unreset(.padsBank0)
+
+    UART.initialize(tx: 0, rx: 1)
+
+    // I2Cパッド設定（直接書き込み、R-M-Wではない）
+    PadsBank.store(16, 0x4A)       // SDA
+    PadsBank.store(17, 0x4A)       // SCL
+    IOBank.setFunction(16, .i2c)
+    IOBank.setFunction(17, .i2c)
+
+    IOBank.setFunction(20, .pwm)   // ブザー
+    initButtons()                   // GP2-GP7
+    ButtonISR.initialize()         // GPIO割り込み設定
+
+    SSD1306.portrait = true
+    display.initialize()
+  }
+}</code></pre>
+
+<h4>Display 構造体</h4>
+<p>1024バイトのフレームバッファを持ち、ポートレートモードで座標変換を行います。</p>
+<ul>
+<li><code>setPixel(x:y:)</code> / <code>clearPixel(x:y:)</code> — 1ピクセル操作</li>
+<li><code>fillRect(x:y:width:height:)</code> / <code>clearRect(...)</code> — 矩形操作</li>
+<li><code>drawDigit(_:x:y:)</code> — Font3x5 で数字描画</li>
+<li><code>drawScore(_:x:y:)</code> — 数値を右から左に描画</li>
+<li><code>flush()</code> — I2C経由で全画面転送（~25ms）</li>
+</ul>
+
+<h4>Buttons</h4>
+<table>
+<tr><th>ボタン</th><th>GPIOピン</th><th>ビット位置</th></tr>
+<tr><td>Up</td><td>GP2</td><td>bit 4 (16)</td></tr>
+<tr><td>Down</td><td>GP3</td><td>bit 5 (32)</td></tr>
+<tr><td>Left</td><td>GP4</td><td>bit 0 (1)</td></tr>
+<tr><td>Right</td><td>GP5</td><td>bit 1 (2)</td></tr>
+<tr><td>A</td><td>GP6</td><td>bit 2 (4)</td></tr>
+<tr><td>B</td><td>GP7</td><td>bit 3 (8)</td></tr>
+</table>
+<p>アクティブLOW（プルアップ）方式。ボタンを押すとGNDに接続されてLOWになります。</p>
+
+<!-- ======================================== -->
+<h2 id="game">5. ゲームロジック</h2>
+
+<h3 id="tetris">5.1 Tetris — 盤面管理</h3>
+
+<p>10列×20行のテトリス盤面。各行を <code>UInt16</code> のビットマスクで表現します（下位10ビット使用）。</p>
+
+<pre><code>// 行データアクセス（タプルをポインタでインデックスアクセス）
+nonisolated(unsafe) static var boardRows:
+  (UInt16, UInt16, ..., UInt16)  // 20要素のタプル
+  = (0, 0, ..., 0)
+
+static func getRow(_ r: Int) -> UInt16 {
+  withUnsafePointer(to: &amp;boardRows) { ptr in
+    UnsafeRawPointer(ptr).assumingMemoryBound(to: UInt16.self)[r]
+  }
+}</code></pre>
+
+<div class="note">
+<strong>なぜ配列ではなくタプルか：</strong>Embedded Swift で <code>[UInt16](repeating: 0, count: 20)</code> はヒープ確保が必要です。タプルならスタック/静的メモリに配置され、ヒープアロケーションを回避できます。
+</div>
+
+<h4>主要メソッド</h4>
+<table>
+<tr><th>メソッド</th><th>役割</th></tr>
+<tr><td><code>canPlace(type, rot, x, y)</code></td><td>ピースが指定位置に置けるか判定</td></tr>
+<tr><td><code>moveLeft/Right/Down()</code></td><td>ピース移動</td></tr>
+<tr><td><code>rotate() / rotateCCW()</code></td><td>時計回り/反時計回り回転</td></tr>
+<tr><td><code>hardDrop()</code></td><td>一番下まで即座に落下</td></tr>
+<tr><td><code>lockAndDetect()</code></td><td>ピースをロック → ライン消去検出</td></tr>
+<tr><td><code>finishClear()</code></td><td>アニメーション後にラインを実際に削除</td></tr>
+<tr><td><code>fallInterval</code></td><td>レベルに応じた落下間隔（500ms〜50ms）</td></tr>
+</table>
+
+<h4>スコアリング</h4>
+<pre><code>switch cleared {
+case 1: score += 40 * level
+case 2: score += 100 * level
+case 3: score += 300 * level
+default: score += 1200 * level  // テトリス！
+}
+tLines += cleared
+level = tLines / 10 + 1</code></pre>
+
+<h3 id="pieces">5.2 Piece — テトロミノ定義</h3>
+
+<p>7種のテトロミノ（I, O, T, S, Z, L, J）×4回転 = 28パターン。各パターンは4×4グリッドを <code>UInt16</code> ビットマスクで表現します。</p>
+
+<pre><code>// ビットレイアウト: bit n = row(n/4), col(n%4)
+// T-piece, rotation 0:
+// . # . .    →  0b 0000_0000_0111_0010  →  0x0072
+// # # . .
+// . . . .
+// . . . .
+
+static func isFilled(type: UInt8, rotation: UInt8, row: Int, col: Int) -> Bool {
+  let s = shape(type: type, rotation: rotation)
+  return s &amp; (1 &lt;&lt; (row * 4 + col)) != 0
+}</code></pre>
+
+<h3 id="music">5.3 Music — BGM再生</h3>
+
+<p>コロブチカ（テトリスのテーマ曲）をPWMブザーで再生。<strong>SysTick割り込みから1msごとに呼ばれる</strong>ため、I2Cフラッシュ中もBGMが途切れません。</p>
+
+<pre><code>// ノートデータ: 上位16ビット=周波数(Hz), 下位16ビット=長さ(ms)
+// 例: (659 &lt;&lt; 16) | 420  →  E5音, 四分音符420ms
+static func noteData(_ i: Int) -> UInt32 {
+  switch i {
+  case 0: return (659 &lt;&lt; 16) | 420   // E5 四分音符
+  case 1: return (494 &lt;&lt; 16) | 210   // B4 八分音符
+  ...
+  }
+}</code></pre>
+
+<h4>テンポ設定（ゲームボーイ版準拠）</h4>
+<table>
+<tr><th>音価</th><th>長さ</th><th>BPM換算</th></tr>
+<tr><td>八分音符</td><td>210ms</td><td rowspan="3">≈ BPM 143</td></tr>
+<tr><td>四分音符</td><td>420ms</td></tr>
+<tr><td>付点四分音符</td><td>630ms</td></tr>
+</table>
+<p>ノート間に20msのギャップ（アーティキュレーション）を入れてスタッカート感を出しています。</p>
+
+<h4>揮発性フラグ</h4>
+<pre><code>// playing フラグの読み書きをポインタ経由で行い、
+// SysTick割り込みハンドラが古い値をキャッシュする問題を防止
+private static var isPlaying: Bool {
+  withUnsafePointer(to: &amp;playing) { ptr in
+    UnsafeRawPointer(ptr).loadUnaligned(as: Bool.self)
+  }
+}
+
+static func advanceInInterrupt() {
+  if !isPlaying { return }  // 揮発性読み取り
+  ...
+}</code></pre>
+
+<h3 id="button">5.4 ButtonISR — 割り込みボタン入力</h3>
+
+<p>GPIO落下エッジ割り込みでボタン押下を即座にキャプチャします。</p>
+
+<pre><code>// 割り込みハンドラ（IO_BANK0 IRQ13から呼ばれる）
+static func handle() {
+  if IOBank.isInterruptPending(pinLeft, .fallingEdge) {
+    IOBank.acknowledgeInterrupt(pinLeft, .fallingEdge)
+    pressed |= 1  // ビットマスクに記録
+  }
+  // ... 他のボタンも同様
+}
+
+// メインループから呼ばれる（読み取り＋クリア）
+static func consumePressed() -> UInt8 {
+  let val = pressed
+  pressed = 0
+  return val
+}</code></pre>
+
+<div class="note">
+<strong>ポーリングとISRの併用：</strong>メインループではポーリング（<code>Buttons.left</code>）による保持検出とISR（<code>ButtonISR.consumePressed()</code>）による押下検出を組み合わせています。ただし、回転やハードドロップはISRのバウンスノイズで二重発動するため、<strong>ポーリングのエッジ検出のみ</strong>を使用しています。
+</div>
+
+<!-- ======================================== -->
+<h2 id="main">6. メインループと状態遷移</h2>
+
+<h3 id="input">6.1 入力処理</h3>
+
+<pre><code>// ボタン状態のビットマスク化
+var cur: UInt8 = 0
+if Buttons.left  { cur |= 1 }
+if Buttons.right { cur |= 2 }
+if Buttons.a     { cur |= 4 }
+if Buttons.b     { cur |= 8 }
+if Buttons.up    { cur |= 16 }
+if Buttons.down  { cur |= 32 }
+
+// エッジ検出: ポーリング + ISR
+let polledPressed = cur &amp; ~lastButtons      // ポーリングの立ち上がりエッジ
+let isrPressed = ButtonISR.consumePressed()  // ISRがキャプチャしたイベント
+let pressed = polledPressed | isrPressed
+lastButtons = cur</code></pre>
+
+<h4>入力方式の使い分け</h4>
+<table>
+<tr><th>操作</th><th>検出方法</th><th>理由</th></tr>
+<tr><td>回転 (A/B)</td><td>polledPressed のみ</td><td>ISRバウンスで二重回転を防止</td></tr>
+<tr><td>ハードドロップ (Up)</td><td>polledPressed のみ + Down非押下チェック</td><td>バウンス防止 + ポーズ操作との衝突回避</td></tr>
+<tr><td>左右移動 (DAS)</td><td>cur（保持状態）</td><td>120ms間隔のリピート入力</td></tr>
+<tr><td>ソフトドロップ (Down)</td><td>cur（保持状態）</td><td>50ms間隔の高速落下</td></tr>
+<tr><td>ポーズ (Left+Right)</td><td>cur（同時押し判定）</td><td>保持状態の組み合わせ</td></tr>
+</table>
+
+<h3 id="screens">6.2 画面遷移</h3>
+
+<div class="diagram">
+         ┌──────────────────┐
+         │  0: タイトル画面   │◄──────────────────┐
+         │  (デモプレイ)      │                    │
+         └────────┬─────────┘                    │
+                  │ A/B ボタン                     │
+                  ▼                               │
+         ┌──────────────────┐                    │
+    ┌───►│  1: プレイ中       │◄──┐               │
+    │    │  (BGM再生)        │   │               │
+    │    └──┬────┬────┬──────┘   │               │
+    │       │    │    │          │               │
+    │  Left+Right│    │ゲームオーバー               │
+    │       │    │    │          │               │
+    │       ▼    │    ▼          │               │
+    │  ┌────────┐│ ┌──────────┐ │               │
+    │  │4: ポーズ││ │5: ライン  │ │               │
+    │  │(PAUSE) ││ │消去アニメ │─┘               │
+    │  └───┬────┘│ └──────────┘                 │
+    │      │     │                               │
+    └──────┘     ▼                               │
+         ┌──────────────────┐                    │
+         │  2: カーテン演出   │                    │
+         │  (上から塗りつぶし) │                    │
+         └────────┬─────────┘                    │
+                  ▼                               │
+         ┌──────────────────┐                    │
+         │  3: スコア画面     │                    │
+         │  (GAME OVER)     │────────────────────┘
+         └──────────────────┘   A/B ボタン
+</div>
+
+<h4>各状態の詳細</h4>
+
+<div class="card">
+<h3>State 0: タイトル画面</h3>
+<ul>
+<li>TETRISロゴ（フレーム付き）</li>
+<li>デモプレイAI（簡易的に自動プレイ、3pxセル縮小ボード）</li>
+<li>「PRESS START」点滅テキスト</li>
+<li>BGMは鳴らない</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>State 1: プレイ中</h3>
+<ul>
+<li>6pxセルの10×20ボード + ボーダー</li>
+<li>スコア表示（左上）、レベル表示（右上）、ネクストピース（右上小）</li>
+<li>BGM再生（SysTick割り込み駆動）</li>
+<li>フレーム間隔: 16ms（~60fps目標）</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>State 4: ポーズ</h3>
+<ul>
+<li>左右ボタン同時押しで発動</li>
+<li>盤面を隠す（「PAUSE」を3倍スケール表示）</li>
+<li>全ボタン離す → 任意ボタンで復帰</li>
+<li>復帰時にDAS/ソフトドロップのタイマーをリセット</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>State 5: ライン消去アニメーション</h3>
+<ul>
+<li>80ms間隔で8フェーズ（4回点滅）</li>
+<li>SysTick割り込みのおかげで、I2Cフラッシュ中も正確なタイミング</li>
+<li>これがハイブリッドアーキテクチャの真価を発揮する場面</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>State 3: ゲームオーバー画面</h3>
+<ul>
+<li>「GAME OVER」3倍スケール文字</li>
+<li>スコア（2倍スケール、中央揃え）</li>
+<li>ライン数・レベル表示</li>
+<li>「PRESS START」点滅</li>
+</ul>
+</div>
+
+<!-- ======================================== -->
+<h2 id="support">7. サポート層</h2>
+
+<h3 id="vector">7.1 ベクターテーブル</h3>
+
+<p>ARM Cortex-M0+ のベクターテーブルを <strong>Swift のタプルリテラル</strong>で定義します。<code>@section(".vector")</code> でリンカスクリプトの <code>.vector</code> セクションに配置されます。</p>
+
+<pre><code>@used
+@section(".vector")
+let vectorTable: (...) = (
+  0x2004_0000,              // 初期スタックポインタ (RAM末尾)
+  resetHandler,             // Reset
+  defaultHandler,           // NMI
+  defaultHandler,           // HardFault
+  ...
+  sysTickHandler,           // SysTick (エントリ15)
+  ...
+  gpioInterruptHandler      // IRQ13: IO_BANK0 (エントリ29)
+)</code></pre>
+
+<h4>割り込みハンドラ</h4>
+<pre><code>// SysTick: 1msごと — BGM制御 + タイムカウンタ
+@c(SysTick_Handler)
+func sysTickHandler() {
+  SysTick._tick &amp;+= 1
+  Music.advanceInInterrupt()
+}
+
+// GPIO: ボタン押下時 — 即座にキャプチャ
+@c(IO_IRQ_BANK0_Handler)
+func gpioInterruptHandler() {
+  ButtonISR.handle()
+}</code></pre>
+
+<h3 id="startup">7.2 メモリ初期化</h3>
+
+<p>C言語のスタートアップコード相当。リンカ定義シンボルのアドレスを取得し、<code>.data</code>（初期値あり変数）をROMからRAMにコピー、<code>.bss</code>（初期値なし変数）をゼロクリアします。</p>
+
+<pre><code>@_extern(c, "__data_origin") nonisolated(unsafe) var __data_origin: UInt8
+@_extern(c, "__data_start") nonisolated(unsafe) var __data_start: UInt8
+@_extern(c, "__data_end") nonisolated(unsafe) var __data_end: UInt8
+@_extern(c, "__bss_end") nonisolated(unsafe) var __bss_end: UInt8
+
+func initializeMemorySections() {
+  // .data: ROMからRAMにコピー
+  // .bss: ゼロクリア
+}</code></pre>
+
+<h3 id="runtime">7.3 ランタイムスタブ</h3>
+
+<p><code>-nostdlib</code> でリンクするため、通常 libc や libgcc が提供するシンボルを自前で実装します。</p>
+
+<table>
+<tr><th>カテゴリ</th><th>関数</th><th>用途</th></tr>
+<tr><td rowspan="2">ヒープ</td><td><code>posix_memalign</code></td><td>クラスインスタンス・配列のヒープ確保（バンプアロケータ）</td></tr>
+<tr><td><code>free</code></td><td>何もしない（解放不要の単純設計）</td></tr>
+<tr><td rowspan="3">アトミック</td><td><code>__atomic_load_4</code></td><td rowspan="3">参照カウント (retain/release)。M0+はシングルコアなので単純ロード/ストア</td></tr>
+<tr><td><code>__atomic_store_4</code></td></tr>
+<tr><td><code>__atomic_fetch_add/sub_4</code></td></tr>
+<tr><td rowspan="3">メモリ操作</td><td><code>__aeabi_memclr/4/8</code></td><td>メモリゼロクリア</td></tr>
+<tr><td><code>__aeabi_memset/4</code></td><td>メモリフィル</td></tr>
+<tr><td><code>__aeabi_memcpy4</code></td><td>メモリコピー</td></tr>
+<tr><td rowspan="4">除算</td><td><code>__aeabi_uidiv</code></td><td>符号なし32ビット除算（二進長除法）</td></tr>
+<tr><td><code>__aeabi_uidivmod</code></td><td>除算+剰余</td></tr>
+<tr><td><code>__aeabi_idiv</code></td><td>符号付き32ビット除算</td></tr>
+<tr><td><code>__aeabi_idivmod</code></td><td>符号付き除算+剰余</td></tr>
+<tr><td rowspan="2">64ビットシフト</td><td><code>__aeabi_llsl</code></td><td>64ビット左シフト（lo, hi, shift の3引数）</td></tr>
+<tr><td><code>__aeabi_llsr</code></td><td>64ビット右シフト</td></tr>
+<tr><td>64ビット乗算</td><td><code>__aeabi_lmul</code></td><td>64ビット乗算（16ビット部分積で実装）</td></tr>
+<tr><td>乱数</td><td><code>arc4random_buf</code></td><td>XorShift疑似乱数</td></tr>
+</table>
+
+<div class="err">
+<strong>遭遇した問題：64ビット演算の無限再帰</strong><br>
+<code>__aeabi_llsl</code> の実装で <code>UInt64 &lt;&lt; 32</code> を使うと、コンパイラがそれを <code>__aeabi_llsl</code> に展開し無限再帰になりました。<code>makeUInt64(lo:hi:)</code> でポインタ操作を使い、64ビット演算を一切使わずに UInt64 を構築することで解決しています。
+</div>
+
+<pre><code>// ポインタ操作で UInt64 を構築（64ビット演算を回避）
+private func makeUInt64(lo: UInt32, hi: UInt32) -> UInt64 {
+  var result: UInt64 = 0
+  withUnsafeMutablePointer(to: &amp;result) { ptr in
+    let p = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: UInt32.self)
+    p[0] = lo  // リトルエンディアン: 下位32ビットがアドレス0
+    p[1] = hi
+  }
+  return result
+}</code></pre>
+
+<h3 id="boot2s">7.4 Boot2 ブートローダ</h3>
+
+<p>RP2040の第2段ブートローダ（256バイト固定）。XIPフラッシュコントローラを初期化し、フラッシュからの直接実行を可能にします。<code>@section(".boot2")</code> でフラッシュの先頭256バイトに配置されます。</p>
+
+<!-- ======================================== -->
+<h2 id="build">8. ビルドシステム</h2>
+
+<pre><code># Makefile
+TRIPLE = armv6m-none-none-eabi
+
+build:
+    swift build --triple $(TRIPLE) --toolset toolset.json
+    $(ELF2UF2) .build/$(TRIPLE)/debug/Application .build/firmware.uf2
+
+release:
+    swift build --triple $(TRIPLE) --toolset toolset.json -c release
+    $(ELF2UF2) .build/$(TRIPLE)/release/Application .build/firmware.uf2</code></pre>
+
+<pre><code>// Package.swift
+.executableTarget(
+  name: "Application",
+  swiftSettings: [
+    .enableExperimentalFeature("Volatile")  // VolatileMappedRegister の使用に必要
+  ]
+)</code></pre>
+
+<h3 id="linker">8.1 リンカスクリプト</h3>
+
+<pre><code>MEMORY {
+  ROM (rx)  : ORIGIN = 0x10000000, LENGTH = 2048K   // XIPフラッシュ
+  RAM (xrw) : ORIGIN = 0x20000000, LENGTH = 256K    // SRAM
+}
+
+SECTIONS {
+  .boot2   > ROM    // 256バイト ブートローダ（先頭固定）
+  .text    > ROM    // .vector + コード + 定数
+  .got     > ROM    // GOT (グローバルオフセットテーブル) — ROMに配置
+  .data    > RAM AT(__data_origin)  // 初期値ありグローバル変数（ROM→RAMコピー）
+  .bss     > RAM    // 初期値なしグローバル変数（ゼロクリア）
+}</code></pre>
+
+<div class="note">
+<strong>GOT in ROM：</strong>Swift コンパイラは <code>Reloc::PIC_</code> を使用するため GOT セクションが生成されますが、ベアメタルでは動的リンカがありません。GOT を ROM に配置することで、この問題を回避しています。
+</div>
+
+<!-- ======================================== -->
+<h2 id="problems">9. 開発中に遭遇した問題と解決策</h2>
+
+<div class="card">
+<h3>SysTick 変数のキャッシュ問題</h3>
+<p><strong>症状:</strong> ゲームがフリーズ。落下もアニメーションも止まる。</p>
+<p><strong>原因:</strong> コンパイラが <code>_tick</code> をレジスタにキャッシュし、割り込みによる更新が見えない。</p>
+<p><strong>解決:</strong> <code>withUnsafePointer</code> + <code>loadUnaligned</code> でメモリから直接読み取り。</p>
+</div>
+
+<div class="card">
+<h3>Music.playing の揮発性問題</h3>
+<p><strong>症状:</strong> 効果音が鳴らない。</p>
+<p><strong>原因:</strong> <code>Music.stop()</code> で <code>playing = false</code> にしても、SysTick割り込みが古い値 <code>true</code> を読み続け、PWMレジスタを上書き。</p>
+<p><strong>解決:</strong> <code>playing</code> の読み書きをポインタベースの揮発性アクセスに変更。</p>
+</div>
+
+<div class="card">
+<h3>64ビット演算スタブの無限再帰</h3>
+<p><strong>症状:</strong> スタックオーバーフロー → HardFault。</p>
+<p><strong>原因:</strong> <code>__aeabi_llsl</code> 内で <code>UInt64 &lt;&lt; 32</code> を使うと、コンパイラがそれを <code>__aeabi_llsl</code> 自身に展開。</p>
+<p><strong>解決:</strong> <code>makeUInt64(lo:hi:)</code> でポインタ操作によりUInt64を構築。64ビット演算を一切使わない。</p>
+</div>
+
+<div class="card">
+<h3>I2C IC_TAR の書き込みタイミング</h3>
+<p><strong>症状:</strong> SSD1306の表示が間欠的に壊れる。</p>
+<p><strong>原因:</strong> IC_TAR レジスタを IC_ENABLE=1 の間に書き込んでいた。</p>
+<p><strong>解決:</strong> disable → 書き込み → enable のサイクル。アドレスキャッシュで冗長サイクルを回避。</p>
+</div>
+
+<div class="card">
+<h3>ペリフェラルのリセット不足</h3>
+<p><strong>症状:</strong> デバッグ停止→再デプロイを3回繰り返すと動作しなくなる。</p>
+<p><strong>原因:</strong> I2C/UART/PWM が前回の状態を保持している。</p>
+<p><strong>解決:</strong> <code>Board.init()</code> で <code>Resets.reset()</code> してからアンリセット。</p>
+</div>
+
+<div class="card">
+<h3>パッド初期化のデフォルト値依存</h3>
+<p><strong>症状:</strong> C言語版を先に実行した後でないと動作しない。</p>
+<p><strong>原因:</strong> <code>PadsBank.enablePullUp()</code> がRead-Modify-Writeで、レジスタのデフォルト値に依存。</p>
+<p><strong>解決:</strong> <code>PadsBank.store(pin, 0x4A)</code> で直接書き込み。</p>
+</div>
+
+<div class="card">
+<h3>配列リテラルのヒープ確保</h3>
+<p><strong>症状:</strong> ボタン初期化時にヒープ確保が発生（バンプアロケータのメモリ消費）。</p>
+<p><strong>原因:</strong> <code>let pins = [2, 3, 4, 5, 6, 7]</code> がEmbedded Swiftでヒープ配列を生成。</p>
+<p><strong>解決:</strong> 個別の <code>configureButton(pin)</code> 呼び出しに変更。</p>
+</div>
+
+<div class="card">
+<h3>ボタンISRのバウンス</h3>
+<p><strong>症状:</strong> 回転やハードドロップが意図せず2回発動。</p>
+<p><strong>原因:</strong> GPIO割り込みがボタンのバウンスで複数回発火し、ISRビットマスクに重複記録。</p>
+<p><strong>解決:</strong> エッジ検出が重要な操作（回転・ハードドロップ）はポーリングのみで判定。ISRはDAS/ソフトドロップの取りこぼし防止に使用。</p>
+</div>
+
+<hr>
+<p style="text-align:center; color:#8b949e; font-size:.85em;">
+  Tetris Hybrid — 100% Swift bare-metal on RP2040<br>
+  Raspberry Pi Pico / ARM Cortex-M0+ / Embedded Swift
+</p>
+
+</body>
+</html>
