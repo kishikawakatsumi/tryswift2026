@@ -4,6 +4,8 @@ Tetris with a cooperative task scheduler.
 
 Game logic, rendering, and music run as separate tasks registered with different intervals. However, since tasks cannot interrupt each other, the heavy I2C display transfer causes music to stutter.
 
+https://github.com/user-attachments/assets/1fcbba33-8e02-42b2-8b3f-2f15a2913d86
+
 ## What it demonstrates
 
 - Cooperative scheduler with `Scheduler.addTask(interval:handler:)`
