@@ -4,6 +4,8 @@ USB game controller using the super loop pattern.
 
 A leverless (all-button) fighting game controller that polls GPIO buttons and sends XInput reports to the PC over USB. The entire application runs in a simple while-true loop.
 
+![IMG_1336](https://github.com/user-attachments/assets/d874726c-3d0a-4183-a52d-dcb367744d09)
+
 ## What it demonstrates
 
 - Super loop as the simplest execution pattern
