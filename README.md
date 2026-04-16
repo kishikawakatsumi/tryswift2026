@@ -2,6 +2,10 @@
 
 Sample code for the try! Swift 2026 talk "Writing Swift Without an OS."
 
+- [Video](https://www.youtube.com/watch?v=vDQ_yxD6JZ4&t=204s)
+- [Slides](https://speakerdeck.com/kishikawakatsumi/running-swift-without-an-os)
+- [Slides with speaker notes (Keynote)](https://www.icloud.com/keynote/013G6WIHGoKbPIk06gcljQ0jA#Bare_Metal_Swift)
+
 Bare-metal Raspberry Pi Pico examples in 100% Swift. No C code, no Pico SDK, no OS.
 
 For more progressive examples (from boot to OLED display, button input, and more), see [pico-bare-swift](https://github.com/kishikawakatsumi/pico-bare-swift).
