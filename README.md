@@ -2,7 +2,7 @@
 
 Sample code for the try! Swift 2026 talk "Writing Swift Without an OS."
 
-- [Video](https://www.youtube.com/watch?v=vDQ_yxD6JZ4&t=204s)
+- [Video](https://youtu.be/vDQ_yxD6JZ4?si=qL1fuG_3haHOtbdy)
 - [Slides](https://speakerdeck.com/kishikawakatsumi/running-swift-without-an-os)
 - [Slides with speaker notes (Keynote)](https://www.icloud.com/keynote/013G6WIHGoKbPIk06gcljQ0jA#Bare_Metal_Swift)
 
